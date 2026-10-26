@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Climb Toor – Free Hill Climb Racing Game | www.climbtoor</title>
+<meta name="description" content="Play Climb Toor free in your browser: drive uphill, collect coins, refuel and unlock new vehicles.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1d2a1f;--panel:#f6efd9;--acc:#f2b632;--grn:#2f6b3f;--red:#d8452e;color-scheme:light dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--panel:#26301f;--ink:#f6efd9}}
+:root[data-theme="dark"]{--panel:#26301f;--ink:#f6efd9}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0;background:#9fd8e8;overflow:hidden;font-family:Bungee,Impact,"Arial Black",sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+.ov{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,20,10,.55);padding:12px;box-sizing:border-box}
+.ov.hide,.pedal.hide{display:none}
+.panel{background:var(--panel);color:var(--ink);border:4px solid var(--ink);border-radius:14px;padding:16px;max-width:560px;width:100%;max-height:92%;overflow-y:auto;text-align:center}
+h1{margin:0;font-size:34px;color:var(--grn)}h2{margin:12px 0 6px;font-size:14px}p{margin:4px 0;font-size:12px;font-family:system-ui,sans-serif;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.card{flex:1 1 120px;border:3px solid var(--ink);border-radius:10px;padding:8px;font-size:11px;cursor:pointer;background:transparent;color:inherit;font-family:inherit}
+.card.sel{background:var(--acc);color:#1d2a1f}
+.card small{display:block;font-family:system-ui,sans-serif;font-weight:700;margin-top:3px}
+.go{margin-top:14px;font:inherit;font-size:20px;padding:10px 28px;border:4px solid var(--ink);border-radius:12px;background:var(--grn);color:#fff;cursor:pointer}
+.go.alt{background:var(--panel);color:var(--ink);font-size:14px}
+.pedal{position:fixed;bottom:calc(14px + env(safe-area-inset-bottom,0px));width:96px;height:96px;border-radius:50%;border:4px solid #1d2a1f;font:inherit;font-size:13px;color:#fff;touch-action:none}
+#brake{left:14px;background:var(--red)}#gas{right:14px;background:var(--grn)}
+</style></head><body>
+<canvas id="c"></canvas>
+<button class="pedal hide" id="brake">BRAKE</button><button class="pedal hide" id="gas">GAS</button>
+<div class="ov" id="menu"><div class="panel"><h1>Climb Toor</h1><p>www.climbtoor</p>
+<p>Drive uphill, grab fuel cans, collect coins. Right = gas, left = brake. In the air, gas and brake tilt your vehicle.</p>
+<h2>Stage</h2><div class="row" id="stages"></div><h2>Vehicle</h2><div class="row" id="vehs"></div>
+<p>Coins: <b id="cn">0</b></p><button class="go" id="play">Drive</button><br><button class="go alt" id="snd">Sound: on</button><p>Free to play on phone and computer. Your coins and best distances are saved in this browser.</p></div></div>
+<div class="ov hide" id="over"><div class="panel"><h1 id="why">Run over</h1><p id="res"></p>
+<button class="go" id="retry">Retry</button><br><button class="go alt" id="garage">Garage</button></div></div>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),$=id=>document.getElementById(id);
+let W,H,DPR,sc,VW,VH;
+function rs(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;sc=Math.max(.7,Math.min(1.3,H/600));VW=W/sc;VH=H/sc}
+addEventListener('resize',rs);rs();
+const STAGES=[
+{n:'Countryside',g:900,sky:['#8fd3ee','#e8f6d0'],top:'#4f9a50',dirt:'#7a4e2d',far:'#76b88a',amp:1},
+{n:'Desert',g:900,sky:['#f4b26a','#fbe7b0'],top:'#e0b35c',dirt:'#b9803f',far:'#e09a5b',amp:1.15},
+{n:'Moon',g:380,sky:['#0b1026','#2a3260'],top:'#b8bcc8',dirt:'#7d8190',far:'#3a4170',amp:1.2,stars:1}];
+const VEH=[
+{n:'Jeep',cost:0,pow:520,r:15,len:34,fuel:1,grip:1,k:300,col:'#d8452e'},
+{n:'Dirt Bike',cost:300,pow:600,r:13,len:30,fuel:.8,grip:1.2,k:420,col:'#2f6bd8'},
+{n:'Monster Truck',cost:900,pow:620,r:22,len:38,fuel:1.3,grip:1.3,k:240,col:'#7a3fb0'},
+{n:'Tank',cost:2500,pow:700,r:17,len:42,fuel:1.6,grip:1.5,k:260,col:'#5c6b3a'}];
+let save={coins:0,own:[0],veh:0,stage:0,best:[0,0,0]};
+try{const s=JSON.parse(localStorage.getItem('climbtoor')||'null');if(s)save=Object.assign(save,s)}catch(e){}
+function persist(){try{localStorage.setItem('climbtoor',JSON.stringify(save))}catch(e){}}
+function gy(x,S){const d=Math.max(x,0),a=Math.min(1,.25+d/9000)*S.amp,b=Math.min(1,d/500);
+return 440+b*a*(70*Math.sin(d*.0042)+48*Math.sin(d*.0113+1)+24*Math.sin(d*.027+2))}
+let car,fuel,coinsRun,pk,nextP,pi,cx,cy,state='menu',gas=0,brake=0,stuck=0,wr=0;
+function renderMenu(){
+ $('cn').textContent=save.coins;
+ $('stages').innerHTML='';$('vehs').innerHTML='';
+ STAGES.forEach((s,i)=>{const b=document.createElement('button');b.className='card'+(save.stage===i?' sel':'');
+  b.innerHTML=s.n+'<small>Best '+save.best[i]+' m</small>';b.onclick=()=>{save.stage=i;persist();renderMenu()};$('stages').appendChild(b)});
+ VEH.forEach((v,i)=>{const own=save.own.includes(i),b=document.createElement('button');b.className='card'+(save.veh===i&&own?' sel':'');
+  b.innerHTML=v.n+'<small>Power '+v.pow+' · Fuel '+v.fuel+'x</small><small>'+(own?(save.veh===i?'Selected':'Select'):'Buy '+v.cost+' coins')+'</small>';
+  b.onclick=()=>{if(own)save.veh=i;else if(save.coins>=v.cost){save.coins-=v.cost;save.own.push(i);save.veh=i}persist();renderMenu()};$('vehs').appendChild(b)});
+}
+function start(){const S=STAGES[save.stage];
+ car={x:120,y:gy(120,S)-60,a:0,vx:0,vy:0,w:0,dead:false};fuel=1;coinsRun=0;pk=[];nextP=500;pi=0;stuck=0;
+ cx=car.x-VW*.3;cy=car.y-VH*.5;state='play';aud();if(AC&&AC.state==='suspended')AC.resume();
+ ['menu','over'].forEach(i=>$(i).classList.add('hide'));['brake','gas'].forEach(i=>$(i).classList.remove('hide'))}
+function end(r){state='over';gas=brake=0;beep(110,.5,'sawtooth');const S=save.stage,d=Math.max(0,Math.floor((car.x-120)/20));
+ save.coins+=coinsRun;if(d>save.best[S])save.best[S]=d;persist();
+ $('why').textContent=r;$('res').textContent=d+' m  ·  +'+coinsRun+' coins  ·  Best '+save.best[S]+' m';
+ $('over').classList.remove('hide');['brake','gas'].forEach(i=>$(i).classList.add('hide'))}
+function step(dt){
+ const S=STAGES[save.stage],V=VEH[save.veh],c=Math.cos(car.a),s=Math.sin(car.a);
+ let ax=0,ay=S.g,tq=0,touch=0;const ly=V.r*.6+4,T=fuel>0?V.pow*gas:0;
+ for(const lx of[-V.len,V.len]){
+  const rx=lx*c-ly*s,ry=lx*s+ly*c,px=car.x+rx,py=car.y+ry,pen=py+V.r-gy(px,S);
+  if(pen<=0)continue;touch++;
+  const sl=(gy(px+2,S)-gy(px-2,S))/4,l=Math.hypot(sl,1),nx=sl/l,ny=-1/l,tx=1/l,ty=sl/l;
+  const vx=car.vx-car.w*ry,vy=car.vy+car.w*rx,vn=vx*nx+vy*ny,vt=vx*tx+vy*ty;
+  const Fn=Math.max(0,V.k*Math.min(pen,32)-1.1*Math.sqrt(V.k)*vn),cap=V.grip*1.6*Fn;
+  let Ft=T-brake*V.pow*.7-vt*.7;Ft=Math.max(-cap,Math.min(cap,Ft));
+  const Fx=nx*Fn+tx*Ft,Fy=ny*Fn+ty*Ft;ax+=Fx;ay+=Fy;tq+=rx*Fy-ry*Fx}
+ if(!touch)tq+=(brake-gas)*6000;
+ car.w+=tq/1800*dt;car.w*=1-.35*dt;car.vx+=ax*dt;car.vy+=ay*dt;car.x+=car.vx*dt;car.y+=car.vy*dt;car.a+=car.w*dt;
+ wr+=car.vx/V.r*dt;
+ if(fuel>0)fuel=Math.max(0,fuel-(.02+.04*gas)*dt/V.fuel);
+ const hl=-24-V.r*.3,hx=car.x-4*c-hl*s,hy=car.y-4*s+hl*c;
+ if(hy>gy(hx,S)-6)car.dead=true}
+function spawn(){const S=STAGES[save.stage];
+ while(nextP<car.x+VW*1.5){pi++;const x=nextP;nextP+=150;
+  if(pi%15===0)pk.push({t:'f',x,y:gy(x,S)-55});else if(pi%5)pk.push({t:'c',x,y:gy(x,S)-48-14*Math.sin(pi)})}}
+function collect(){pk=pk.filter(p=>{
+ if(Math.hypot(p.x-car.x,p.y-car.y)<48){if(p.t==='c'){coinsRun++;beep(880,.12)}else{fuel=Math.min(1,fuel+.5);beep(520,.25,'triangle')}return false}
+ return p.x>car.x-VW})}
+let last=0;
+function loop(t){const dt=Math.min(.033,(t-last)/1000||0);last=t;
+ if(state==='play'){for(let i=0;i<6;i++)step(dt/6);spawn();collect();
+  if(car.dead)end('Head hit the ground');
+  else if(fuel<=0&&Math.hypot(car.vx,car.vy)<8){stuck+=dt;if(stuck>1.2)end('Out of fuel')}else stuck=0}
+ engine();draw();requestAnimationFrame(loop)}
+function draw(){
+ const S=STAGES[save.stage],V=VEH[save.veh];ctx.setTransform(DPR*sc,0,0,DPR*sc,0,0);
+ const g=ctx.createLinearGradient(0,0,0,VH);g.addColorStop(0,S.sky[0]);g.addColorStop(1,S.sky[1]);ctx.fillStyle=g;ctx.fillRect(0,0,VW,VH);
+ const tx=state==='menu'?performance.now()*.15:car.x,ty=state==='menu'?420-VH*.5:car.y;
+ cx+=(tx-VW*.3-cx)*.2;cy+=(ty-VH*.5-cy)*.08;
+ if(S.stars){ctx.fillStyle='#fff';for(let i=0;i<60;i++)ctx.fillRect((i*137.5-cx*.05)%VW+(i*137.5-cx*.05<0?VW:0),(i*53)%(VH*.7),2,2)}
+ ctx.fillStyle=S.far;ctx.beginPath();ctx.moveTo(0,VH);
+ for(let x=0;x<=VW;x+=10)ctx.lineTo(x,VH*.68+Math.sin((x+cx*.3)*.004)*60+Math.sin((x+cx*.3)*.011)*20);
+ ctx.lineTo(VW,VH);ctx.fill();
+ ctx.fillStyle=S.dirt;ctx.beginPath();ctx.moveTo(0,VH);
+ for(let x=0;x<=VW+6;x+=6)ctx.lineTo(x,gy(cx+x,S)-cy);
+ ctx.lineTo(VW+6,VH);ctx.fill();
+ ctx.strokeStyle=S.top;ctx.lineWidth=12;ctx.lineJoin='round';ctx.beginPath();
+ for(let x=0;x<=VW+6;x+=6){const y=gy(cx+x,S)-cy+4;x?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.stroke();
+ if(state==='menu')return;
+ for(const p of pk){const x=p.x-cx,y=p.y-cy;
+  if(p.t==='c'){ctx.fillStyle='#f2b632';ctx.strokeStyle='#8a5a00';ctx.lineWidth=3;ctx.beginPath();ctx.arc(x,y,10,0,7);ctx.fill();ctx.stroke()}
+  else{ctx.fillStyle='#d8452e';ctx.fillRect(x-12,y-14,24,28);ctx.fillStyle='#fff';ctx.font='16px Bungee,Impact,sans-serif';ctx.textAlign='center';ctx.fillText('F',x,y+6)}}
+ ctx.save();ctx.translate(car.x-cx,car.y-cy);ctx.rotate(car.a);
+ const ly=V.r*.6+4;ctx.fillStyle=V.col;ctx.strokeStyle='#1d2a1f';ctx.lineWidth=3;
+ ctx.beginPath();ctx.roundRect(-V.len-8,-12,V.len*2+16,ly+2,6);ctx.fill();ctx.stroke();
+ ctx.beginPath();ctx.moveTo(-V.len*.5,-12);ctx.lineTo(-V.len*.3,-26);ctx.lineTo(V.len*.35,-26);ctx.lineTo(V.len*.6,-12);ctx.closePath();ctx.fill();ctx.stroke();
+ ctx.fillStyle='#f3c9a0';ctx.beginPath();ctx.arc(-4,-24-V.r*.3+8,7,0,7);ctx.fill();ctx.stroke();
+ for(const lx of[-V.len,V.len]){ctx.save();ctx.translate(lx,ly);ctx.rotate(wr);
+  ctx.fillStyle='#222';ctx.beginPath();ctx.arc(0,0,V.r,0,7);ctx.fill();
+  ctx.strokeStyle='#bbb';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(-V.r*.6,0);ctx.lineTo(V.r*.6,0);ctx.moveTo(0,-V.r*.6);ctx.lineTo(0,V.r*.6);ctx.stroke();ctx.restore()}
+ ctx.restore();
+ ctx.fillStyle='rgba(0,0,0,.45)';ctx.fillRect(10,10,170,16);ctx.fillStyle=fuel<.2?'#d8452e':'#f2b632';ctx.fillRect(12,12,166*fuel,12);
+ ctx.fillStyle='#fff';ctx.font='15px Bungee,Impact,sans-serif';ctx.textAlign='left';
+ ctx.fillText('FUEL',190,24);ctx.fillText(Math.max(0,Math.floor((car.x-120)/20))+' m',10,50);ctx.fillText('Coins '+coinsRun,10,72)}
+let AC,osc,og,mute=false;
+function aud(){if(AC||mute)return;try{AC=new(window.AudioContext||window.webkitAudioContext)();osc=AC.createOscillator();og=AC.createGain();osc.type='sawtooth';osc.frequency.value=50;og.gain.value=0;osc.connect(og);og.connect(AC.destination);osc.start()}catch(e){}}
+function beep(f,d,t){if(!AC||mute)return;const o=AC.createOscillator(),g=AC.createGain();o.type=t||'square';o.frequency.value=f;g.gain.value=.08;o.connect(g);g.connect(AC.destination);o.start();g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+d);o.stop(AC.currentTime+d)}
+function engine(){if(!osc)return;og.gain.value=(state==='play'&&!mute)?.04:0;if(state==='play')osc.frequency.value=45+Math.min(Math.abs(car.vx),700)*.12+gas*25}
+function key(e,v){const k=e.key;if(k==='ArrowRight'||k==='d')gas=v;if(k==='ArrowLeft'||k==='a')brake=v}
+addEventListener('keydown',e=>key(e,1));addEventListener('keyup',e=>key(e,0));
+function pedal(id,set){const b=$(id);b.addEventListener('pointerdown',e=>{e.preventDefault();set(1)});
+ ['pointerup','pointerleave','pointercancel'].forEach(t=>b.addEventListener(t,()=>set(0)))}
+pedal('gas',v=>gas=v);pedal('brake',v=>brake=v);
+$('play').onclick=start;$('retry').onclick=start;
+$('snd').onclick=()=>{mute=!mute;$('snd').textContent='Sound: '+(mute?'off':'on')};
+$('garage').onclick=()=>{state='menu';$('over').classList.add('hide');$('menu').classList.remove('hide');renderMenu()};
+renderMenu();requestAnimationFrame(loop);
+</script></body></html>
